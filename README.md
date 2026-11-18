@@ -2,7 +2,7 @@
 
 ## Overview
 
-A minimal invoice reminder SaaS built with FastAPI + SQLite. Email reminders (real SMTP delivery is opt-in through `ALLOW_OUTBOUND_EMAIL`) and WhatsApp links, manual and daily scheduled triggers, and a one-click **live demo**: a shared, pre-filled account that resets every hour. Per-user data isolation via JWT auth.
+A minimal invoice reminder SaaS built with FastAPI + Postgres. Email reminders (real SMTP delivery is opt-in through `ALLOW_OUTBOUND_EMAIL`) and WhatsApp links, manual and daily scheduled triggers, and a one-click **live demo**: a shared, pre-filled account that resets every hour. Per-user data isolation via JWT auth.
 
 <!-- TODO: live demo link + screenshot -->
 
@@ -12,9 +12,10 @@ Want to look around without signing up? Click **Try the live demo**. Other visit
 
 ## Files
 
-- `backend/` – FastAPI backend (Python, FastAPI + SQLAlchemy + Pydantic)
+- `backend/` – FastAPI backend (Python, FastAPI + SQLAlchemy + Pydantic), with Alembic migrations in `backend/alembic/`
 - `frontend/index.html` – Single-file HTML/JS/CSS dashboard
-- `data/app.db` – SQLite database (gitignored)
+- `docker-compose.yml` – local Postgres for development and tests
+- `docs/ARCHITECTURE.md` – where the project is heading
 
 ## Setup
 
@@ -23,18 +24,40 @@ Want to look around without signing up? Click **Try the live demo**. Other visit
    cd backend
    python -m pip install -r requirements.txt
    ```
-2. **Environment** (create `.env` from `.env.example`):
+2. **Start Postgres** (from the repo root; it listens on host port 5433):
    ```bash
+   docker compose up -d db
+   ```
+3. **Environment** (create `.env` from `.env.example`; the defaults match the compose database):
+   ```bash
+   cd backend
    cp .env.example .env
    ```
    Adjust `SECRET_KEY`, `DATABASE_URL`, `CORS_ORIGINS` as needed.
-3. **Initialize DB and run**:
+4. **Create the tables and run**:
    ```bash
-   cd backend
+   alembic upgrade head
    python -m uvicorn app.main:app --reload
    ```
-4. **Open the dashboard**:
-   Open `frontend/index.html` in a browser. Use `http://localhost:8000` as base if CORS is configured.
+5. **Open the app** at `http://localhost:8000` (the backend serves the frontend).
+
+### Tests
+
+```bash
+cd backend
+python -m pytest -q
+```
+The tests need the compose Postgres running. They create and use their own `invoice_test` database (and refuse to run against any database whose name does not end in `_test`), build its schema with the real migrations, and roll back after every test. Set `TEST_DATABASE_URL` to use a different server.
+
+### Changing the schema
+
+Edit `backend/app/models.py`, then generate and review a migration:
+```bash
+cd backend
+alembic revision --autogenerate -m "describe the change"
+alembic upgrade head
+```
+A test fails if the models and migrations drift apart.
 
 ## Features
 
@@ -58,7 +81,7 @@ Copy `backend/.env.example` to `backend/.env`. Every variable is optional for lo
 | Variable | Default | What it does |
 |---|---|---|
 | `SECRET_KEY` | dev value | JWT signing key. Must be 32+ characters when `DEBUG=false`, or the app refuses to start. |
-| `DATABASE_URL` | `sqlite:///./data/app.db` | Database location. |
+| `DATABASE_URL` | local compose Postgres | Postgres connection string. `postgres://` and `postgresql://` URLs from hosting providers are accepted. Required when `DEBUG=false`. |
 | `DEBUG` | `true` | Turns off the auth rate limits and HSTS, and enables `/docs`. Set `false` in production. |
 | `CORS_ORIGINS` | localhost list | Comma-separated origins allowed to call the API. |
 | `ACCESS_TOKEN_MINUTES` | `120` | Login token lifetime. |
@@ -75,7 +98,8 @@ Copy `backend/.env.example` to `backend/.env`. Every variable is optional for lo
 
 The `render.yaml` blueprint deploys the Docker image on Render's free plan. Be aware of the following:
 
-- **Real accounts are not durable.** The free plan has no persistent disk, so the SQLite database and uploaded logos are wiped on every redeploy or restart. The demo account re-seeds itself at startup.
+- **Set `DATABASE_URL` in the Render dashboard.** The app runs `alembic upgrade head` on every start and refuses to start without it. Use an external Postgres such as Neon, or a paid Render database. Render's own free Postgres expires after 30 days and has no backups, so it is not suitable for anything you want to keep.
+- **Uploaded logos are not durable on the free plan.** There is no persistent disk, so logos are lost on every redeploy or restart. Account data lives in Postgres and survives. The demo account re-seeds itself at startup.
 - **Check the proxy setting after the first deploy.** Behind Render's proxy, `TRUSTED_PROXY_HOPS=1` makes rate limits count the real client. To check, send 35 login attempts with a different forged `X-Forwarded-For` each time:
   ```bash
   for i in $(seq 1 35); do curl -s -o /dev/null -w "%{http_code} " -XPOST https://YOUR-APP.onrender.com/api/auth/login \

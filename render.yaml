@@ -9,6 +9,11 @@ services:
         value: "false"
       - key: SECRET_KEY
         generateValue: true
+      # Postgres connection string, set in the Render dashboard (the app will not start without it).
+      # Render's own free Postgres expires after 30 days and has no backups, so for a lasting demo use an
+      # external provider (e.g. Neon) or a paid Render database.
+      - key: DATABASE_URL
+        sync: false
       # Render's proxy appends the client address to X-Forwarded-For: trust exactly one hop (verify after deploy)
       - key: TRUSTED_PROXY_HOPS
         value: "1"

@@ -2,8 +2,8 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
-from .config import settings
-from .db import init_db, get_db
+from .config import DEV_DATABASE_URL, settings
+from .db import get_db
 from .services.scheduler import start_scheduler, stop_scheduler
 from .services.demo_service import ensure_demo_user
 from pathlib import Path
@@ -35,12 +35,13 @@ async def lifespan(app: FastAPI):
     # Production secret key validation
     if not settings.debug and (settings.secret_key == "dev-secret-change-in-production" or len(settings.secret_key) < 32):
         raise RuntimeError("SECRET_KEY must be set to a strong value in production")
+    if not settings.debug and settings.database_url == DEV_DATABASE_URL:
+        raise RuntimeError("DATABASE_URL must be set to your Postgres database in production")
 
     # Create logos directory
     logos_dir = Path(settings.logos_dir)
     logos_dir.mkdir(parents=True, exist_ok=True)
 
-    init_db()
     if settings.demo_enabled:
         try:
             ensure_demo_user()

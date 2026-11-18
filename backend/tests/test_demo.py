@@ -11,7 +11,8 @@ ASSET = Path(__file__).resolve().parent.parent / "app" / "demo_assets" / "northw
 
 
 @pytest.fixture(autouse=True)
-def demo_on(monkeypatch):
+def demo_on(client, monkeypatch):
+    # After `client`: app startup ran with the demo off, so nothing was seeded outside the test transaction
     monkeypatch.setattr(settings, "demo_enabled", True)
 
 

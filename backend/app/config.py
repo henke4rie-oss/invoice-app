@@ -1,10 +1,15 @@
 from pathlib import Path
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings
+
+# Matches docker-compose.yml. Production must override it (see the startup check in app/main.py).
+DEV_DATABASE_URL = "postgresql+psycopg://invoice:invoice@localhost:5433/invoice"
 
 class Settings(BaseSettings):
     secret_key: str = Field(default="dev-secret-change-in-production")
-    database_url: str = Field(default="sqlite:///./data/app.db")
+    # Postgres. Local dev: `docker compose up -d db` (host port 5433). Hosted providers (Neon, Render, Heroku-style)
+    # hand out postgres:// or postgresql:// URLs; those are rewritten to the psycopg 3 driver below.
+    database_url: str = Field(default=DEV_DATABASE_URL)
     cors_origins: str = Field(default="http://localhost,http://127.0.0.1,http://localhost:8000,http://127.0.0.1:8000,http://localhost:5500,http://127.0.0.1:5500,null")
     scheduler_time: str = Field(default="09:00")
     scheduler_enabled: bool = Field(default=True)
@@ -32,5 +37,13 @@ class Settings(BaseSettings):
     smtp_pass: str = Field(default="")
     smtp_from: str = Field(default="")
     smtp_use_tls: bool = Field(default=True)
+
+    @field_validator("database_url")
+    @classmethod
+    def _use_psycopg_driver(cls, url: str) -> str:
+        for prefix in ("postgres://", "postgresql://"):
+            if url.startswith(prefix):
+                return "postgresql+psycopg://" + url[len(prefix):]
+        return url
 
 settings = Settings()

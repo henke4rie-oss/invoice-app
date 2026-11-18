@@ -1,32 +1,34 @@
 from datetime import datetime, timezone
-from sqlalchemy import create_engine, event, text
-from sqlalchemy.orm import sessionmaker, declarative_base
 from typing import Generator
-from sqlalchemy.orm import Session
+
+from sqlalchemy import MetaData, create_engine
+from sqlalchemy.orm import Session, declarative_base, sessionmaker
+
 from .config import settings
 
 def utcnow() -> datetime:
     """Naive UTC 'now' (replacement for the deprecated datetime.utcnow()).
 
-    Naive on purpose: SQLite DateTime columns store naive values, so mixing in
+    Naive on purpose: every DateTime column is TIMESTAMP WITHOUT TIME ZONE holding UTC, so mixing in
     tz-aware datetimes would break comparisons.
     """
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
-engine = create_engine(
-    settings.database_url,
-    connect_args={"check_same_thread": False}
-)
-
-# SQLite: enable foreign keys
-if settings.database_url.startswith("sqlite"):
-    @event.listens_for(engine, "connect")
-    def _enable_foreign_keys(dbapi_conn, connection_record):
-        dbapi_conn.execute("PRAGMA foreign_keys=ON")
+# pool_pre_ping: a managed Postgres drops idle connections; check before reusing one instead of failing a request
+engine = create_engine(settings.database_url, pool_pre_ping=True)
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-Base = declarative_base()
+
+# Stable constraint names, so Alembic migrations can drop or alter them later.
+# (Check constraints are left to Postgres's default naming, e.g. invoices_status_check.)
+NAMING_CONVENTION = {
+    "ix": "ix_%(column_0_label)s",
+    "uq": "uq_%(table_name)s_%(column_0_name)s",
+    "fk": "fk_%(table_name)s_%(column_0_name)s_%(referred_table_name)s",
+    "pk": "pk_%(table_name)s",
+}
+Base = declarative_base(metadata=MetaData(naming_convention=NAMING_CONVENTION))
 
 # Dependency to get DB session
 def get_db() -> Generator[Session, None, None]:
@@ -36,22 +38,4 @@ def get_db() -> Generator[Session, None, None]:
     finally:
         db.close()
 
-# Initialize DB (create tables)
-from . import models
-
-def init_db():
-    Base.metadata.create_all(bind=engine)
-    
-    # Guarded ALTERs to add columns to databases created before they existed
-    for statement in (
-        "ALTER TABLE clients ADD COLUMN phone VARCHAR",
-        "ALTER TABLE users ADD COLUMN business_name VARCHAR",
-        "ALTER TABLE users ADD COLUMN logo_path VARCHAR",
-        "ALTER TABLE reminders ADD COLUMN link VARCHAR",
-        "ALTER TABLE users ADD COLUMN is_demo BOOLEAN NOT NULL DEFAULT 0",
-    ):
-        try:
-            with engine.begin() as conn:
-                conn.execute(text(statement))
-        except Exception:
-            pass  # column already exists
+# The schema is managed by Alembic: run `alembic upgrade head` (see backend/alembic/).

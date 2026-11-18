@@ -13,7 +13,7 @@ RUN pip install --no-cache-dir -r backend/requirements.txt
 COPY backend backend
 COPY frontend frontend
 
-# SQLite DB and uploaded logos live in backend/data (ephemeral unless a volume is mounted)
+# Uploaded logos live in backend/data/logos (ephemeral unless a volume is mounted). The database is external Postgres.
 RUN useradd --create-home app && mkdir -p backend/data && chown -R app:app backend/data
 USER app
 WORKDIR /app/backend
@@ -22,8 +22,10 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s \
   CMD python -c "import os,urllib.request as u; u.urlopen('http://127.0.0.1:%s/health' % os.environ.get('PORT','8000'))"
 
-# SECRET_KEY (>= 32 chars) must be provided at runtime: the app refuses to start with DEBUG=false otherwise.
+# SECRET_KEY (>= 32 chars) and DATABASE_URL must be provided at runtime: the app refuses to start with DEBUG=false otherwise.
+# Migrations run before the server starts; `alembic upgrade head` is safe to repeat and serialises concurrent starts
+# with a Postgres advisory lock. If it fails (database unreachable) the container exits and the deploy is marked failed.
 # --no-proxy-headers: uvicorn must not rewrite the client address from X-Forwarded-For (with
 # --forwarded-allow-ips='*' it would take the leftmost entry, which the client controls and could
 # use to dodge the login rate limit). The app resolves the real client IP itself, using TRUSTED_PROXY_HOPS.
-CMD ["sh", "-c", "exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000} --no-proxy-headers"]
+CMD ["sh", "-c", "alembic upgrade head && exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000} --no-proxy-headers"]

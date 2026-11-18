@@ -1,90 +1,95 @@
 import os
+import re
 import tempfile
+from pathlib import Path
 
-# Must be set before the app is imported: tests never touch the real dev database or start the scheduler
-os.environ["DATABASE_URL"] = "sqlite:///:memory:"
+# Must be set before the app is imported: tests never touch the dev database or start the scheduler.
+# Start Postgres with `docker compose up -d db`; the test database ("invoice_test") is created on demand.
+TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL", "postgresql+psycopg://invoice:invoice@localhost:5433/invoice_test")
+os.environ["DATABASE_URL"] = TEST_DATABASE_URL
 os.environ["SCHEDULER_ENABLED"] = "false"
 os.environ["LOGOS_DIR"] = tempfile.mkdtemp(prefix="invoice-test-logos-")  # never touch the real data/logos
 os.environ["DEMO_ENABLED"] = "false"  # demo tests switch it on explicitly; other tests skip the seeding cost
 
 import pytest
+from alembic import command
+from alembic.config import Config
 from fastapi.testclient import TestClient
+from sqlalchemy import create_engine, text
+from sqlalchemy.engine import make_url
+from sqlalchemy.orm import Session
+
+from app.config import settings
+from app.db import engine, get_db
 from app.main import app
-from app.db import Base, get_db
 
-# Check if SQLAlchemy is available
-try:
-    from sqlalchemy import create_engine
-    from sqlalchemy.orm import sessionmaker
-    from sqlalchemy.pool import StaticPool
-    SQLALCHEMY_AVAILABLE = True
-except ImportError:
-    SQLALCHEMY_AVAILABLE = False
-    print("Warning: SQLAlchemy not available, tests may fail")
+BACKEND_DIR = Path(__file__).resolve().parent.parent
 
-# In-memory SQLite database with StaticPool for shared connection
-if SQLALCHEMY_AVAILABLE:
-    TEST_ENGINE = create_engine(
-        "sqlite:///:memory:",
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
-        echo=False
-    )
-    
-    # Enable foreign keys for SQLite
-    if SQLALCHEMY_AVAILABLE:
-        from sqlalchemy import event
-        @event.listens_for(TEST_ENGINE, "connect")
-        def _enable_foreign_keys(dbapi_conn, connection_record):
-            dbapi_conn.execute("PRAGMA foreign_keys=ON")
 
-        TESTING_SESSION_LOCAL = sessionmaker(
-            autocommit=False,
-            autoflush=False,
-            bind=TEST_ENGINE
-        )
+def alembic_config() -> Config:
+    return Config(str(BACKEND_DIR / "alembic.ini"))
 
-# Function to get test database session
-def get_test_db():
-    """Generator function to yield a test database session"""
-    if not SQLALCHEMY_AVAILABLE:
-        yield None
-        return
-    
-    db = TESTING_SESSION_LOCAL()
+
+def _ensure_database_exists(url) -> None:
+    admin = create_engine(url.set(database="postgres"), isolation_level="AUTOCOMMIT")
     try:
-        yield db
+        with admin.connect() as conn:
+            if not conn.execute(text("SELECT 1 FROM pg_database WHERE datname = :n"), {"n": url.database}).scalar():
+                conn.execute(text(f'CREATE DATABASE "{url.database}"'))
     finally:
-        db.close()
+        admin.dispose()
 
-# Create all tables in test database before any tests run
+
+@pytest.fixture(scope="session", autouse=True)
+def _database():
+    """Fresh schema built by the real Alembic migrations (so they are exercised on every run)."""
+    url = make_url(settings.database_url)
+    # Safety: this fixture wipes the schema, so it must never be pointed at a real database.
+    if not re.fullmatch(r"[A-Za-z0-9_]+_test", url.database or ""):
+        pytest.exit(f"Refusing to run tests against database {url.database!r}: its name must end with '_test'", returncode=2)
+    _ensure_database_exists(url)
+    with engine.begin() as conn:
+        conn.execute(text("DROP SCHEMA public CASCADE"))
+        conn.execute(text("CREATE SCHEMA public"))
+    command.upgrade(alembic_config(), "head")
+    yield
+    engine.dispose()
+
+
 @pytest.fixture(autouse=True)
-def create_tables():
-    """Create all tables in test database before tests run"""
-    if SQLALCHEMY_AVAILABLE:
-        Base.metadata.create_all(bind=TEST_ENGINE)
-        yield
-        Base.metadata.drop_all(bind=TEST_ENGINE)
-    else:
-        yield
+def db_connection(_database):
+    """Every test runs inside one transaction that is rolled back afterwards.
 
-# Test client fixture that uses the test database
+    The API's sessions join it with savepoints, so the app's own commit()/rollback() calls work
+    normally but nothing survives the test.
+    """
+    connection = engine.connect()
+    transaction = connection.begin()
+
+    def override_get_db():
+        session = Session(bind=connection, autoflush=False, join_transaction_mode="create_savepoint")
+        try:
+            yield session
+        finally:
+            session.close()
+
+    app.dependency_overrides[get_db] = override_get_db
+    yield connection
+    app.dependency_overrides.pop(get_db, None)
+    transaction.rollback()
+    connection.close()
+
+
 @pytest.fixture
-def client():
-    """Test client fixture with test database"""
-    # Override get_db dependency with test database
-    original_get_db = get_db
-    app.dependency_overrides[get_db] = get_test_db
-    
+def client(db_connection):
+    """Test client whose sessions run inside the per-test transaction."""
     with TestClient(app) as test_client:
         yield test_client
-    
-    del app.dependency_overrides[get_db]
 
 
 @pytest.fixture
 def db_session(client):
-    """A session on the same test database the API uses (via the app's get_db override)."""
+    """A session on the same transaction the API uses (via the app's get_db override)."""
     gen = app.dependency_overrides[get_db]()
     db = next(gen)
     yield db
@@ -133,10 +138,6 @@ def create_user(client):
             email = f"test_{uuid.uuid4()}@example.com"
         if password is None:
             password = "testpassword123"
-        
-        if SQLALCHEMY_AVAILABLE:
-            from app.db import Base
-            Base.metadata.create_all(bind=TEST_ENGINE)
         
         response = client.post("/api/auth/register", json={"email": email, "password": password})
         

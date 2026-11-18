@@ -311,9 +311,8 @@ def test_invoice_with_reminders_can_be_deleted(client, create_user, db_session):
 
 # ---------- Phase 3b: tokens are bound to the account they were issued for ----------
 
-def test_new_databases_never_reuse_user_ids(client, create_user):
-    from app.models import User as UserModel
-    assert UserModel.__table__.kwargs.get("sqlite_autoincrement") is True
+def test_user_ids_are_never_reused(client, create_user):
+    # Postgres sequences never hand out an id twice, even after the row is deleted
     first_email, first_pw, token = create_user()
     first_id = client.get("/api/auth/me", headers=_h(token)).json()["id"]
     assert _delete_account(client, token, first_pw).status_code == 204
