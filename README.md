@@ -4,7 +4,7 @@
 
 A minimal invoice reminder SaaS built with FastAPI + SQLite. Email reminders (real SMTP delivery is opt-in through `ALLOW_OUTBOUND_EMAIL`) and WhatsApp links, manual and daily scheduled triggers, and a one-click **live demo**: a shared, pre-filled account that resets every hour. Per-user data isolation via JWT auth.
 
-<!-- TODO: live demo link + screenshot -->
+**Live demo:** https://invoice-app-3vb5.onrender.com (click **Try the live demo**; the free server sleeps when idle, so the first load can take about 30 seconds). Screenshot to come.
 
 ## Quick start
 
