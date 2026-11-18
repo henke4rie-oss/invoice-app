@@ -1,3 +1,4 @@
+import calendar
 from .db import utcnow
 from datetime import datetime, timedelta
 from jose import JWTError
@@ -7,7 +8,6 @@ import bcrypt
 
 SECRET_KEY = settings.secret_key
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 24 * 60
 
 def hash_password(password: str) -> str:
     salt = bcrypt.gensalt()
@@ -22,10 +22,22 @@ def create_access_token(data: dict, expires_delta: timedelta = None):
     if expires_delta:
         expire = utcnow() + expires_delta
     else:
-        expire = utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+        expire = utcnow() + timedelta(minutes=settings.access_token_minutes)
     to_encode.update({"exp": expire})
     encoded_jwt = encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
+
+def user_stamp(user) -> int:
+    """Identity stamp of an account: its creation time in microseconds since the epoch (UTC).
+
+    Bound into every token (claim "uat"). A database may hand a deleted user's id to a new account;
+    the new account has a different creation time, so the old user's token no longer matches it.
+    """
+    created = user.created_at
+    return calendar.timegm(created.utctimetuple()) * 1_000_000 + created.microsecond
+
+def create_user_token(user) -> str:
+    return create_access_token({"sub": str(user.id), "uat": user_stamp(user)})
 
 def verify_token(token: str) -> dict:
     try:

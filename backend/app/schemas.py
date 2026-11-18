@@ -2,13 +2,27 @@ from datetime import datetime
 from pydantic import BaseModel, EmailStr, ConfigDict, Field, field_validator
 from typing import Literal, Optional
 
+def _check_bcrypt_length(password: str) -> str:
+    # bcrypt only accepts 72 bytes; multi-byte characters can exceed that within 72 characters
+    if len(password.encode("utf-8")) > 72:
+        raise ValueError("Password must be at most 72 bytes")
+    return password
+
 class UserCreate(BaseModel):
     email: EmailStr
     password: str = Field(min_length=8, max_length=72)
 
+    _bcrypt_limit = field_validator("password")(_check_bcrypt_length)
+
+class AccountDelete(BaseModel):
+    password: str = Field(min_length=1, max_length=72)
+
+    _bcrypt_limit = field_validator("password")(_check_bcrypt_length)
+
 class UserOut(BaseModel):
     id: int
     email: EmailStr
+    is_demo: bool = False
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)

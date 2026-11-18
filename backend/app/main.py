@@ -5,6 +5,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from .config import settings
 from .db import init_db, get_db
 from .services.scheduler import start_scheduler, stop_scheduler
+from .services.demo_service import ensure_demo_user
 from pathlib import Path
 from fastapi.staticfiles import StaticFiles
 import logging
@@ -40,6 +41,12 @@ async def lifespan(app: FastAPI):
     logos_dir.mkdir(parents=True, exist_ok=True)
 
     init_db()
+    if settings.demo_enabled:
+        try:
+            ensure_demo_user()
+        except Exception:
+            # Non-essential: POST /api/auth/demo retries on first use
+            logging.exception("Demo seeding failed")
     if settings.scheduler_enabled:
         start_scheduler()
     yield
@@ -69,18 +76,45 @@ app.add_middleware(
 # Security headers and rate limiting middleware
 rate_limit_data = {}
 
+def get_client_ip(request: Request) -> str:
+    """Client IP for rate limiting that a caller cannot spoof.
+
+    Uvicorn's proxy-header handling is disabled (see Dockerfile), so request.client is the direct peer.
+    Behind N trusted proxies each proxy appends the address it saw, so the real client is the Nth entry
+    from the right; anything further left was supplied by the client and is ignored.
+    """
+    peer = request.client.host if request.client else "unknown"
+    hops = settings.trusted_proxy_hops
+    if hops <= 0:
+        return peer
+    parts = [p.strip() for p in request.headers.get("x-forwarded-for", "").split(",") if p.strip()]
+    return parts[-hops] if len(parts) >= hops else peer  # shorter than expected: do not trust it
+
+def rate_limit_bucket(request: Request) -> str | None:
+    """Which limited action a request is, or None. Each action has its own budget per client IP, so
+    e.g. wrong-password guesses on login never eat into someone's demo resets."""
+    path = request.url.path
+    if path in ("/api/auth/login", "/api/auth/register"):
+        return "auth"
+    if path == "/api/auth/demo/reset":
+        return "demo-reset"
+    if path == "/api/profile" and request.method == "DELETE":
+        return "delete-account"  # takes a password: without a limit a stolen token could be used to guess it
+    return None
+
 class SecurityAndRateLimitMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request, call_next):
-        # Rate limiting for auth endpoints (disabled in debug mode)
-        if not settings.debug and request.url.path in ("/api/auth/login", "/api/auth/register"):
-            client_ip = request.client.host if request.client else "unknown"
+        # Rate limiting for auth-sensitive endpoints (disabled in debug mode)
+        bucket = rate_limit_bucket(request)
+        if not settings.debug and bucket:
+            client_ip = (bucket, get_client_ip(request))
             now = time.time()
             
-            # Drop expired IPs so the dict cannot grow without bound
-            for ip in [ip for ip, stamps in rate_limit_data.items() if not stamps or now - stamps[-1] >= settings.auth_rate_window]:
-                del rate_limit_data[ip]
+            # Drop expired keys so the dict cannot grow without bound
+            for key in [key for key, stamps in rate_limit_data.items() if not stamps or now - stamps[-1] >= settings.auth_rate_window]:
+                del rate_limit_data[key]
 
-            # Clean old timestamps (outside the window) for this IP
+            # Clean old timestamps (outside the window) for this key
             rate_limit_data[client_ip] = [ts for ts in rate_limit_data.get(client_ip, []) if now - ts < settings.auth_rate_window]
 
             if len(rate_limit_data[client_ip]) >= settings.auth_rate_limit:
@@ -106,7 +140,9 @@ class SecurityAndRateLimitMiddleware(BaseHTTPMiddleware):
         response.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
         response.headers["Content-Security-Policy"] = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'"
         
-        if request.url.scheme == "https":
+        # Behind a TLS-terminating proxy the app itself sees plain http (proxy headers are deliberately not
+        # trusted), so outside debug always send HSTS; browsers ignore it on plain-http connections.
+        if request.url.scheme == "https" or not settings.debug:
             response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
         
         return response

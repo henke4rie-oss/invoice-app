@@ -1,5 +1,7 @@
+from pathlib import Path
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
-from ..models import User
+from ..models import Client, Invoice, Reminder, User
 from ..auth import hash_password
 
 def create_user(db: Session, email: str, password: str) -> User:
@@ -37,3 +39,19 @@ def set_logo_path(db: Session, user_id: int, logo_path: str) -> User | None:
 
 def get_user_profile(db: Session, user_id: int) -> User | None:
     return db.query(User).filter(User.id == user_id).first()
+
+def delete_user_and_data(db: Session, user: User) -> None:
+    """Permanently delete a user and everything they own (reminders, invoices, clients, logo file).
+
+    Bulk deletes in FK order (invoices -> clients is RESTRICT), committed atomically.
+    """
+    own_invoices = select(Invoice.id).where(Invoice.user_id == user.id)
+    db.execute(delete(Reminder).where(Reminder.invoice_id.in_(own_invoices)))
+    db.execute(delete(Invoice).where(Invoice.user_id == user.id))
+    db.execute(delete(Client).where(Client.user_id == user.id))
+    logo_path = user.logo_path
+    db.execute(delete(User).where(User.id == user.id))
+    db.commit()
+    if logo_path:  # after the commit: a failed delete must not leave a half-deleted account
+        logos_dir = Path(__file__).resolve().parent.parent.parent / "data" / "logos"
+        (logos_dir / logo_path.split("/")[-1]).unlink(missing_ok=True)

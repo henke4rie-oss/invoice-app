@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 from ..db import get_db
 from ..schemas import ReminderOut, ReminderCreate
-from ..services.reminder_service import send_reminder, trigger_overdue_reminders
+from ..services.reminder_service import send_reminder, trigger_overdue_reminders, ReminderLimitError
 from ..deps import get_current_user
 from ..models import User, Invoice, Reminder
 from typing import List, Optional
@@ -41,6 +41,8 @@ def create_reminder_for_invoice(
     try:
         reminder = send_reminder(db, invoice_id, current_user.id, reminder_data.channel)
         return reminder
+    except ReminderLimitError as e:
+        raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=str(e))
     except ValueError as e:
         if "paid/cancelled" in str(e) or "paid" in str(e) or "cancelled" in str(e):
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))

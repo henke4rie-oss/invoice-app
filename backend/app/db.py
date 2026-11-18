@@ -48,6 +48,7 @@ def init_db():
         "ALTER TABLE users ADD COLUMN business_name VARCHAR",
         "ALTER TABLE users ADD COLUMN logo_path VARCHAR",
         "ALTER TABLE reminders ADD COLUMN link VARCHAR",
+        "ALTER TABLE users ADD COLUMN is_demo BOOLEAN NOT NULL DEFAULT 0",
     ):
         try:
             with engine.begin() as conn:

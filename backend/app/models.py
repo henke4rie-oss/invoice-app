@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, CheckConstraint, UniqueConstraint
+from sqlalchemy import Boolean, Column, Integer, String, Text, DateTime, ForeignKey, CheckConstraint, UniqueConstraint
 from sqlalchemy.orm import relationship
 from .db import Base, utcnow
 
@@ -9,7 +9,11 @@ class User(Base):
     password_hash = Column(String, nullable=False)
     business_name = Column(String)
     logo_path = Column(String)
+    is_demo = Column(Boolean, nullable=False, default=False, server_default="0")
     created_at = Column(DateTime, default=utcnow, nullable=False)
+
+    # Never hand a deleted user's id to a new account (SQLite reuses the highest rowid otherwise)
+    __table_args__ = {"sqlite_autoincrement": True}
 
     clients = relationship("Client", back_populates="user")
     invoices = relationship("Invoice", back_populates="user")
@@ -51,7 +55,7 @@ class Invoice(Base):
 
     user = relationship("User", back_populates="invoices")
     client = relationship("Client", back_populates="invoices")
-    reminders = relationship("Reminder", back_populates="invoice")
+    reminders = relationship("Reminder", back_populates="invoice", cascade="all, delete-orphan")
 
 class Reminder(Base):
     __tablename__ = "reminders"

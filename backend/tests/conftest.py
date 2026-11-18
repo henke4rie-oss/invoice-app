@@ -3,6 +3,7 @@ import os
 # Must be set before the app is imported: tests never touch the real dev database or start the scheduler
 os.environ["DATABASE_URL"] = "sqlite:///:memory:"
 os.environ["SCHEDULER_ENABLED"] = "false"
+os.environ["DEMO_ENABLED"] = "false"  # demo tests switch it on explicitly; other tests skip the seeding cost
 
 import pytest
 from fastapi.testclient import TestClient
@@ -77,6 +78,15 @@ def client():
         yield test_client
     
     del app.dependency_overrides[get_db]
+
+
+@pytest.fixture
+def db_session(client):
+    """A session on the same test database the API uses (via the app's get_db override)."""
+    gen = app.dependency_overrides[get_db]()
+    db = next(gen)
+    yield db
+    gen.close()
 
 
 # Auth helper fixture that returns response functions

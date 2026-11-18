@@ -11,6 +11,18 @@ class Settings(BaseSettings):
     auth_rate_limit: int = Field(default=10)
     auth_rate_window: int = Field(default=900)
     debug: bool = Field(default=True)
+    # Access-token lifetime. Short on purpose: tokens live in localStorage and cannot be revoked server-side.
+    access_token_minutes: int = Field(default=120)
+    # Number of trusted reverse proxies in front of the app (0 = none, use the socket address).
+    # With N > 0 the client IP is the Nth-from-right X-Forwarded-For entry, which the proxy chain appends
+    # and a client cannot forge. Never trust the leftmost entry: the client controls it.
+    trusted_proxy_hops: int = Field(default=0, ge=0)
+    # Real SMTP delivery is opt-in: with SMTP_HOST set but this false, reminders are only logged.
+    allow_outbound_email: bool = Field(default=False)
+    # Per-user cap on reminder deliveries (sent + failed attempts) per UTC day.
+    max_reminders_per_day: int = Field(default=50, ge=1)
+    # Demo mode: a shared pre-filled account reachable via POST /api/auth/demo, reset every hour (UTC)
+    demo_enabled: bool = Field(default=True)
     smtp_host: str = Field(default="")
     smtp_port: int = Field(default=587)
     smtp_user: str = Field(default="")

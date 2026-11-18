@@ -1,5 +1,6 @@
 from ..db import utcnow
 from abc import ABC, abstractmethod
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 from ..repositories.reminders import create_reminder, get_reminders_by_invoice, get_reminders_by_user
 from ..repositories.invoices import get_invoice_by_id, update_invoice_status, get_invoices_by_user
@@ -22,10 +23,21 @@ class Sender(ABC):
         """Send reminder for invoice. Returns (status, error, link)."""
         pass
 
+class ReminderLimitError(ValueError):
+    """The user has reached the daily cap on reminder deliveries."""
+
 class LogSender(Sender):
+    def __init__(self, reason: str = "Email delivery not configured (SMTP_HOST unset) - reminder logged only"):
+        self.reason = reason
+
     def send(self, invoice: Invoice, channel: str) -> Tuple[str, str, Optional[str]]:
-        # No SMTP configured: nothing is delivered, so say so instead of pretending
-        return ("sent", "Email delivery not configured (SMTP_HOST unset) - reminder logged only", None)
+        # Nothing is delivered, so say so instead of pretending
+        return ("sent", self.reason, None)
+
+class DemoSender(Sender):
+    def send(self, invoice: Invoice, channel: str) -> Tuple[str, str, Optional[str]]:
+        # The shared demo account must never send real email, even when SMTP is configured
+        return ("sent", "Demo account: email not actually delivered", None)
 
 class SmtpSender(Sender):
     def __init__(self):
@@ -87,10 +99,12 @@ class WhatsAppSender(Sender):
 
 def get_sender(channel: str = "email") -> Sender:
     if channel == 'email':
-        if settings.smtp_host:
-            return SmtpSender()
-        else:
+        if not settings.smtp_host:
             return LogSender()
+        if not settings.allow_outbound_email:
+            # SMTP is configured, but real delivery is opt-in so an open signup cannot be used as a mail relay
+            return LogSender("Outbound email is disabled (ALLOW_OUTBOUND_EMAIL=false) - reminder logged only")
+        return SmtpSender()
     elif channel == 'whatsapp':
         return WhatsAppSender()
     else:
@@ -115,8 +129,17 @@ def send_reminder(db: Session, invoice_id: int, user_id: int, channel: str = "em
         reminder = create_reminder(db, invoice_id, utcnow(), channel, "skipped", "Duplicate today", None)
         return ReminderOut.model_validate(reminder)
 
+    # Daily cap per user: bounds how much mail one account can push out (skipped duplicates do not count)
+    delivered_today = db.query(func.count(Reminder.id)).join(Invoice, Reminder.invoice_id == Invoice.id).filter(
+        Invoice.user_id == user_id,
+        Reminder.status.in_(("sent", "failed")),
+        Reminder.sent_at >= today_start,
+    ).scalar()
+    if delivered_today >= settings.max_reminders_per_day and not invoice.user.is_demo:  # shared demo never delivers
+        raise ReminderLimitError(f"Daily reminder limit reached ({settings.max_reminders_per_day}). Try again tomorrow.")
+
     # Send via sender
-    sender = get_sender(channel)
+    sender = DemoSender() if (channel == "email" and invoice.user.is_demo) else get_sender(channel)
     status, error, link = sender.send(invoice, channel)
     if status == "sent" and invoice.status == "draft":
         # Only drafts move to 'sent'; overdue invoices stay overdue (overdue->sent is not a valid transition)
@@ -144,6 +167,7 @@ def trigger_overdue_reminders(db: Session, user_id: int) -> dict:
     processed = 0
     sent = 0
     skipped = 0
+    limited = False
     for inv in _iter_overdue_invoices(db, user_id):
         try:
             if inv.status != "overdue":
@@ -154,7 +178,11 @@ def trigger_overdue_reminders(db: Session, user_id: int) -> dict:
                 sent += 1
             elif rem.status == "skipped":
                 skipped += 1
+        except ReminderLimitError:
+            limited = True  # every remaining invoice would hit the same cap
+            logger.warning("Daily reminder limit reached for user %s", user_id)
+            break
         except Exception:
             db.rollback()
             logger.exception("Reminder failed for invoice %s (user %s)", inv.id, user_id)
-    return {"processed": processed, "sent": sent, "skipped": skipped}
+    return {"processed": processed, "sent": sent, "skipped": skipped, "limited": limited}

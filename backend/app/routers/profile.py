@@ -2,7 +2,8 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, status
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from ..db import get_db
-from ..schemas import BusinessProfileOut, BusinessProfileUpdate
+from ..schemas import AccountDelete, BusinessProfileOut, BusinessProfileUpdate
+from ..auth import verify_password
 from ..deps import get_current_user
 from ..models import User
 from pathlib import Path
@@ -50,7 +51,7 @@ async def upload_logo(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    from ..repositories.users import get_user_by_id, set_logo_path
+    from ..repositories.users import get_user_by_id, get_user_profile, set_logo_path
     content_type = file.content_type or ""
     if not content_type.startswith("image/"):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="File must be an image")
@@ -118,3 +119,19 @@ def get_logo(
     if not file_path.exists():
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Logo file not found")
     return FileResponse(file_path)
+
+
+@router.delete("", status_code=status.HTTP_204_NO_CONTENT)
+def delete_account(
+    data: AccountDelete,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Permanently delete the account and all of its data. Requires the current password."""
+    from ..repositories.users import delete_user_and_data
+    if current_user.is_demo:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="The demo account cannot be deleted")
+    # 403 not 401: the frontend treats a 401 on this route as an expired session
+    if not verify_password(current_user.password_hash, data.password):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Incorrect password")
+    delete_user_and_data(db, current_user)
