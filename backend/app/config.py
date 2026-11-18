@@ -1,3 +1,4 @@
+from pathlib import Path
 from pydantic import Field
 from pydantic_settings import BaseSettings
 
@@ -11,6 +12,8 @@ class Settings(BaseSettings):
     auth_rate_limit: int = Field(default=10)
     auth_rate_window: int = Field(default=900)
     debug: bool = Field(default=True)
+    # Where uploaded business logos are stored (the tests point this at a temp dir)
+    logos_dir: str = Field(default=str(Path(__file__).resolve().parent.parent / "data" / "logos"))
     # Access-token lifetime. Short on purpose: tokens live in localStorage and cannot be revoked server-side.
     access_token_minutes: int = Field(default=120)
     # Number of trusted reverse proxies in front of the app (0 = none, use the socket address).

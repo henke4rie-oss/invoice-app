@@ -1,8 +1,10 @@
 import os
+import tempfile
 
 # Must be set before the app is imported: tests never touch the real dev database or start the scheduler
 os.environ["DATABASE_URL"] = "sqlite:///:memory:"
 os.environ["SCHEDULER_ENABLED"] = "false"
+os.environ["LOGOS_DIR"] = tempfile.mkdtemp(prefix="invoice-test-logos-")  # never touch the real data/logos
 os.environ["DEMO_ENABLED"] = "false"  # demo tests switch it on explicitly; other tests skip the seeding cost
 
 import pytest

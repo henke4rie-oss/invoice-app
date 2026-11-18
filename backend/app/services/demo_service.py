@@ -5,6 +5,7 @@ POST /api/auth/demo), never sends real email, and is re-seeded on a schedule.
 """
 import logging
 import secrets
+import shutil
 import urllib.parse
 from datetime import timedelta
 from pathlib import Path
@@ -13,6 +14,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from ..auth import hash_password
+from ..config import settings
 from ..db import SessionLocal, utcnow
 from ..models import Client, Invoice, Reminder, User
 
@@ -63,7 +65,8 @@ _REMINDERS = [
     ("DEMO-1008", 1, "whatsapp", "sent", None),
 ]
 
-_LOGOS_DIR = Path(__file__).resolve().parent.parent.parent / "data" / "logos"
+# Example logo shown on the demo business (regenerate with backend/scripts/make_demo_logo.py)
+_DEMO_LOGO = Path(__file__).resolve().parent.parent / "demo_assets" / "northwind-logo.png"
 
 
 def get_demo_user(db: Session) -> User | None:
@@ -77,8 +80,20 @@ def _wipe(db: Session, user: User) -> None:
     db.execute(delete(Invoice).where(Invoice.user_id == user.id))
     db.execute(delete(Client).where(Client.user_id == user.id))
     if user.logo_path:
-        (_LOGOS_DIR / user.logo_path.split("/")[-1]).unlink(missing_ok=True)
+        (Path(settings.logos_dir) / user.logo_path.split("/")[-1]).unlink(missing_ok=True)
         user.logo_path = None
+
+
+def _seed_logo(user: User) -> None:
+    """Give the demo business its example logo. Never fails the reset: no logo is better than no demo."""
+    try:
+        logos_dir = Path(settings.logos_dir)
+        logos_dir.mkdir(parents=True, exist_ok=True)
+        filename = f"{user.id}.png"
+        shutil.copyfile(_DEMO_LOGO, logos_dir / filename)
+        user.logo_path = f"logos/{filename}"
+    except OSError:
+        logger.warning("Demo logo could not be seeded", exc_info=True)
 
 
 def reset_demo_data(db: Session) -> User:
@@ -94,6 +109,7 @@ def reset_demo_data(db: Session) -> User:
 
     _wipe(db, user)
     user.business_name = DEMO_BUSINESS_NAME
+    _seed_logo(user)
 
     now = utcnow()
     today = now.replace(hour=0, minute=0, second=0, microsecond=0)

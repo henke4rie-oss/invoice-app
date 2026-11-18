@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 from ..db import get_db
 from ..schemas import AccountDelete, BusinessProfileOut, BusinessProfileUpdate
 from ..auth import verify_password
+from ..config import settings
 from ..deps import get_current_user
 from ..models import User
 from pathlib import Path
@@ -81,8 +82,7 @@ async def upload_logo(
         if magic_bytes[:4] != b'RIFF':
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid WebP file")
 
-    data_dir = Path(__file__).resolve().parent.parent.parent / "data"
-    logos_dir = data_dir / "logos"
+    logos_dir = Path(settings.logos_dir)
     logos_dir.mkdir(parents=True, exist_ok=True)
 
     safe_filename = f"{current_user.id}.{file_extension}"
@@ -112,8 +112,7 @@ def get_logo(
 
     # Extract filename from path
     filename = profile.logo_path.split('/')[-1]
-    data_dir = Path(__file__).resolve().parent.parent.parent / "data"
-    logos_dir = data_dir / "logos"
+    logos_dir = Path(settings.logos_dir)
     file_path = logos_dir / filename
 
     if not file_path.exists():

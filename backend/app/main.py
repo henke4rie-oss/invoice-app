@@ -37,7 +37,7 @@ async def lifespan(app: FastAPI):
         raise RuntimeError("SECRET_KEY must be set to a strong value in production")
 
     # Create logos directory
-    logos_dir = Path(__file__).resolve().parent.parent / "data" / "logos"
+    logos_dir = Path(settings.logos_dir)
     logos_dir.mkdir(parents=True, exist_ok=True)
 
     init_db()

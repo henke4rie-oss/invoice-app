@@ -1,9 +1,13 @@
 """Demo mode: shared pre-filled account, safe by construction."""
+from pathlib import Path
+
 import pytest
 
 from app.config import settings
 from app.services import demo_service
 from app.services.demo_service import DEMO_EMAIL
+
+ASSET = Path(__file__).resolve().parent.parent / "app" / "demo_assets" / "northwind-logo.png"
 
 
 @pytest.fixture(autouse=True)
@@ -144,16 +148,16 @@ def test_scheduled_reminder_run_skips_demo_user(client, db_session, monkeypatch)
 # ---------- "Reset demo data" button ----------
 
 def test_reset_endpoint_restores_the_seed_and_removes_visitor_changes(client):
-    from pathlib import Path
     token = _demo_token(client)
     me = client.get("/api/auth/me", headers=_headers(token)).json()
+    logos = Path(settings.logos_dir)
 
     client.post("/api/clients", json={"name": "Visitor Added"}, headers=_headers(token))
     client.put("/api/profile", json={"business_name": "Defaced"}, headers=_headers(token))
-    png = b"\x89PNG\r\n\x1a\n" + b"0" * 32
-    assert client.post("/api/profile/logo", files={"file": ("l.png", png, "image/png")}, headers=_headers(token)).status_code == 200
-    logo = Path(__file__).resolve().parent.parent / "data" / "logos" / f"{me['id']}.png"
-    assert logo.exists()
+    jpeg = b"\xff\xd8\xff" + b"0" * 32  # a different extension than the seeded .png
+    assert client.post("/api/profile/logo", files={"file": ("l.jpg", jpeg, "image/jpeg")}, headers=_headers(token)).status_code == 200
+    visitor_logo = logos / f"{me['id']}.jpg"
+    assert visitor_logo.exists()
     invoices = _all(client, token, "invoices")
     client.delete(f"/api/invoices/{invoices[0]['id']}", headers=_headers(token))
 
@@ -164,9 +168,20 @@ def test_reset_endpoint_restores_the_seed_and_removes_visitor_changes(client):
     assert len(_all(client, token, "invoices")) == 15
     profile = client.get("/api/profile", headers=_headers(token)).json()
     assert profile["business_name"] == demo_service.DEMO_BUSINESS_NAME
-    assert profile["logo_url"] is None
-    assert not logo.exists()
+    assert not visitor_logo.exists()  # the visitor's upload is gone...
+    assert profile["logo_url"] is not None  # ...and the example logo is back, byte for byte
+    assert client.get("/api/profile/logo", headers=_headers(token)).content == ASSET.read_bytes()
     assert client.get("/api/auth/me", headers=_headers(token)).status_code == 200  # same session keeps working
+
+
+def test_reset_overwriting_a_visitor_png_restores_the_example_logo(client):
+    token = _demo_token(client)
+    me = client.get("/api/auth/me", headers=_headers(token)).json()
+    visitor_png = b"\x89PNG\r\n\x1a\n" + b"visitor" * 8
+    assert client.post("/api/profile/logo", files={"file": ("mine.png", visitor_png, "image/png")}, headers=_headers(token)).status_code == 200
+    assert client.get("/api/profile/logo", headers=_headers(token)).content == visitor_png  # same file name as the seeded logo
+    assert client.post("/api/auth/demo/reset", headers=_headers(token)).status_code == 200
+    assert client.get("/api/profile/logo", headers=_headers(token)).content == ASSET.read_bytes()
 
 
 def test_reset_endpoint_is_for_the_demo_account_only(client, create_user, get_headers):
@@ -181,3 +196,30 @@ def test_reset_endpoint_404_when_demo_disabled(client, monkeypatch):
     token = _demo_token(client)
     monkeypatch.setattr(settings, "demo_enabled", False)
     assert client.post("/api/auth/demo/reset", headers=_headers(token)).status_code == 404
+
+
+# ---------- example logo ----------
+
+def test_demo_business_starts_with_the_example_logo(client):
+    token = _demo_token(client)
+    profile = client.get("/api/profile", headers=_headers(token)).json()
+    assert profile["logo_url"]
+    logo = client.get("/api/profile/logo", headers=_headers(token))
+    assert logo.status_code == 200
+    assert logo.content.startswith(b"\x89PNG\r\n\x1a\n")
+    assert logo.content == ASSET.read_bytes()
+
+
+def test_repeated_resets_leave_exactly_one_logo_file(client, db_session):
+    token = _demo_token(client)
+    demo_id = client.get("/api/auth/me", headers=_headers(token)).json()["id"]
+    for _ in range(3):
+        demo_service.reset_demo_data(db_session)
+    assert sorted(p.name for p in Path(settings.logos_dir).glob(f"{demo_id}.*")) == [f"{demo_id}.png"]
+
+
+def test_a_missing_logo_asset_never_breaks_seeding(client, monkeypatch, tmp_path):
+    monkeypatch.setattr(demo_service, "_DEMO_LOGO", tmp_path / "does-not-exist.png")
+    token = _demo_token(client)  # seeds on first use
+    assert len(_all(client, token, "invoices")) == 15
+    assert client.get("/api/profile", headers=_headers(token)).json()["logo_url"] is None

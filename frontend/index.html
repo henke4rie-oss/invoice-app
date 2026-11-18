@@ -986,7 +986,7 @@
         function getCountry(code){ return COUNTRIES.find(c=>c.code===code) || COUNTRIES.find(c=>c.code==='US'); }
         function loadCountry(){ try { return localStorage.getItem(COUNTRY_KEY); } catch(e){ return null; } }
         function saveCountry(code){ try { localStorage.setItem(COUNTRY_KEY, code); } catch(e){} }
-        let selectedCountry = loadCountry() || 'US';
+        let selectedCountry = loadCountry() || 'ZA';
         let defaultCurrency = getCountry(selectedCountry).currency;
 
         // ---------- Icons (inline SVG, feather-style) ----------

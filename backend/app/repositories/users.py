@@ -3,6 +3,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 from ..models import Client, Invoice, Reminder, User
 from ..auth import hash_password
+from ..config import settings
 
 def create_user(db: Session, email: str, password: str) -> User:
     hashed = hash_password(password)
@@ -53,5 +54,5 @@ def delete_user_and_data(db: Session, user: User) -> None:
     db.execute(delete(User).where(User.id == user.id))
     db.commit()
     if logo_path:  # after the commit: a failed delete must not leave a half-deleted account
-        logos_dir = Path(__file__).resolve().parent.parent.parent / "data" / "logos"
+        logos_dir = Path(settings.logos_dir)
         (logos_dir / logo_path.split("/")[-1]).unlink(missing_ok=True)

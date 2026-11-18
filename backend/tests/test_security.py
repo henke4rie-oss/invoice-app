@@ -163,7 +163,7 @@ def test_delete_account_removes_uploaded_logo_file(client, create_user):
     png = b"\x89PNG\r\n\x1a\n" + b"0" * 32
     up = client.post("/api/profile/logo", files={"file": ("logo.png", png, "image/png")}, headers=_h(token))
     assert up.status_code == 200
-    logos = Path(__file__).resolve().parent.parent / "data" / "logos"
+    logos = Path(settings.logos_dir)
     user_id = client.get("/api/auth/me", headers=_h(token)).json()["id"]
     assert (logos / f"{user_id}.png").exists()
     assert _delete_account(client, token, password).status_code == 204

@@ -65,6 +65,7 @@ Copy `backend/.env.example` to `backend/.env`. Every variable is optional for lo
 | `TRUSTED_PROXY_HOPS` | `0` | Reverse proxies in front of the app. Behind Render, set `1`. |
 | `AUTH_RATE_LIMIT` / `AUTH_RATE_WINDOW` | `10` / `900` | Login and register attempts per IP per window (seconds). |
 | `DEMO_ENABLED` | `true` | Shows the live demo and its hourly reset. |
+| `LOGOS_DIR` | `backend/data/logos` | Where uploaded business logos are stored. |
 | `SCHEDULER_ENABLED` / `SCHEDULER_TIME` | `true` / `09:00` | Daily overdue-reminder job (UTC). |
 | `ALLOW_OUTBOUND_EMAIL` | `false` | Sends real SMTP mail. Leave `false` to only log reminders. |
 | `MAX_REMINDERS_PER_DAY` | `50` | Reminder deliveries allowed per user per UTC day. |
