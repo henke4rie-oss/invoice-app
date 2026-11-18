@@ -24,8 +24,14 @@ jobs:
         working-directory: backend
         run: python -m pytest -q -W error::DeprecationWarning
 
-      - name: Frontend script parses
+      - name: Frontend scripts parse
         run: |
-          sed -n '/^    <script>/,/^    <\/script>/p' frontend/index.html | sed '1d;$d' > "$RUNNER_TEMP/app.js"
-          test -s "$RUNNER_TEMP/app.js"
-          node --check "$RUNNER_TEMP/app.js"
+          python3 - "$RUNNER_TEMP" <<'EOF'
+          import pathlib, re, sys
+          html = pathlib.Path("frontend/index.html").read_text()
+          scripts = re.findall(r"<script>(.*?)</script>", html, re.S)
+          assert len(scripts) >= 2, "expected the head theme script and the app script"
+          for i, body in enumerate(scripts):
+              pathlib.Path(sys.argv[1], f"script{i}.js").write_text(body)
+          EOF
+          for f in "$RUNNER_TEMP"/script*.js; do node --check "$f"; done

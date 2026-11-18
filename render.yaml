@@ -9,6 +9,9 @@ services:
         value: "false"
       - key: SECRET_KEY
         generateValue: true
+      # Render's proxy appends the client address to X-Forwarded-For: trust exactly one hop (verify after deploy)
+      - key: TRUSTED_PROXY_HOPS
+        value: "1"
       # Public demo: several visitors may share one IP, so allow more auth attempts than the default
       - key: AUTH_RATE_LIMIT
         value: "30"

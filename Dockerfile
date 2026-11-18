@@ -23,5 +23,7 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=15s \
   CMD python -c "import os,urllib.request as u; u.urlopen('http://127.0.0.1:%s/health' % os.environ.get('PORT','8000'))"
 
 # SECRET_KEY (>= 32 chars) must be provided at runtime: the app refuses to start with DEBUG=false otherwise.
-# --proxy-headers: behind a platform proxy, rate limiting must see the real client IP, not the proxy's.
-CMD ["sh", "-c", "exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000} --proxy-headers --forwarded-allow-ips='*'"]
+# --no-proxy-headers: uvicorn must not rewrite the client address from X-Forwarded-For (with
+# --forwarded-allow-ips='*' it would take the leftmost entry, which the client controls and could
+# use to dodge the login rate limit). The app resolves the real client IP itself, using TRUSTED_PROXY_HOPS.
+CMD ["sh", "-c", "exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000} --no-proxy-headers"]
