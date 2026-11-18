@@ -10,3 +10,4 @@ apscheduler==3.11.3
 pytest==9.2.0
 aiofiles==25.1.0
 email-validator==2.3.0
+httpx2==2.16.0
