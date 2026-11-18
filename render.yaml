@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: invoice-app
+    runtime: docker
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - key: DEBUG
+        value: "false"
+      - key: SECRET_KEY
+        generateValue: true
+      # Public demo: several visitors may share one IP, so allow more auth attempts than the default
+      - key: AUTH_RATE_LIMIT
+        value: "30"

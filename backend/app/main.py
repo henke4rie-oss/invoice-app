@@ -77,16 +77,16 @@ class SecurityAndRateLimitMiddleware(BaseHTTPMiddleware):
             now = time.time()
             
             # Drop expired IPs so the dict cannot grow without bound
-            for ip in [ip for ip, stamps in rate_limit_data.items() if not stamps or now - stamps[-1] >= 900]:
+            for ip in [ip for ip, stamps in rate_limit_data.items() if not stamps or now - stamps[-1] >= settings.auth_rate_window]:
                 del rate_limit_data[ip]
 
-            # Clean old timestamps (older than 900s) for this IP
-            rate_limit_data[client_ip] = [ts for ts in rate_limit_data.get(client_ip, []) if now - ts < 900]
+            # Clean old timestamps (outside the window) for this IP
+            rate_limit_data[client_ip] = [ts for ts in rate_limit_data.get(client_ip, []) if now - ts < settings.auth_rate_window]
 
-            if len(rate_limit_data[client_ip]) >= 5:
+            if len(rate_limit_data[client_ip]) >= settings.auth_rate_limit:
                 # Calculate retry-after: seconds until oldest request expires
                 oldest_ts = min(rate_limit_data[client_ip])
-                retry_after = int(oldest_ts + 900 - now)
+                retry_after = int(oldest_ts + settings.auth_rate_window - now)
                 retry_after = max(1, retry_after)
                 
                 return JSONResponse(
@@ -104,7 +104,7 @@ class SecurityAndRateLimitMiddleware(BaseHTTPMiddleware):
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
         response.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
-        response.headers["Content-Security-Policy"] = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'"
+        response.headers["Content-Security-Policy"] = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'"
         
         if request.url.scheme == "https":
             response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"

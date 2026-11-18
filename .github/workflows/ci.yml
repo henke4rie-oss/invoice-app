@@ -1,0 +1,31 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r backend/requirements.txt
+
+      - name: Backend tests (deprecation warnings are errors)
+        working-directory: backend
+        run: python -m pytest -q -W error::DeprecationWarning
+
+      - name: Frontend script parses
+        run: |
+          sed -n '/^    <script>/,/^    <\/script>/p' frontend/index.html | sed '1d;$d' > "$RUNNER_TEMP/app.js"
+          test -s "$RUNNER_TEMP/app.js"
+          node --check "$RUNNER_TEMP/app.js"

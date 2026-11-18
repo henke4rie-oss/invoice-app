@@ -1,0 +1,12 @@
+.git
+.github
+.kilo
+.kilocodeignore
+**/__pycache__
+**/*.pyc
+.pytest_cache
+backend/venv
+backend/data
+backend/tests
+backend/.env
+.env
