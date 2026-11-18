@@ -1,0 +1,48 @@
+# Environment
+.env
+.env.*
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Database
+data/
+*.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+*.log
+
+# Temporary files
+*.tmp
+
+# Misc
+.DS_Store
+
+# Build
+frontend/dist/
+
+# Tool-specific (local planning files, not part of the app)
+.kilo/
+.kilocodeignore
+
+# Templates are safe to commit
+!.env.example
+!backend/.env.example

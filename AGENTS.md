@@ -1,0 +1,4 @@
+- Stack: Python (FastAPI, Pydantic, SQLite) + clean single-file HTML/JS/CSS frontend.
+- Performance: Prioritize runtime efficiency (O(n) over O(n^2), generators/itertools) over shortcuts.
+- UI: Distinct custom components, clean spacing, blue/purple palette. Never use red accents.
+- Scope: Edit only files required for the current step. Never rewrite working code unprompted.
